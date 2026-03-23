@@ -1,12 +1,14 @@
-import puter from '@/lib/puter';
+import getPuter from '@/lib/puter';
 import { Cpu, Sparkles, MessageSquare, Globe } from 'lucide-react';
 
 async function getModels() {
     try {
-        const models = await puter.ai.listModels();
+        const puter = getPuter();
+        // Use deduplicate: false to get the full list of 500+ models from all providers
+        const models = await puter.ai.listModels({ deduplicate: false });
         return models as any[];
     } catch (e) {
-        console.error(e);
+        console.error('Home Page Mode Fetch Error:', e);
         return [];
     }
 }
@@ -14,8 +16,8 @@ async function getModels() {
 export default async function Home() {
     const models = await getModels();
     
-    // Show top 100 for the grid
-    const displayModels = models.slice(0, 100);
+    // Show top 200 for the grid (to keep it performant while showing variety)
+    const displayModels = models.slice(0, 200);
 
     return (
         <main className="min-h-screen bg-[#050505] text-white selection:bg-purple-500/30">
@@ -36,7 +38,7 @@ export default async function Home() {
                     </h1>
                     <p className="text-lg md:text-xl text-white/50 max-w-2xl mx-auto leading-relaxed">
                         The ultimate OpenAI-compatible proxy for Puter's entire AI fleet.
-                        Access {models.length} models with zero limits.
+                        Access {models.length} + models with zero limits and global edge routing.
                     </p>
                 </header>
 
@@ -49,28 +51,28 @@ export default async function Home() {
                         <div className="h-px flex-1 mx-8 bg-gradient-to-r from-white/10 to-transparent" />
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         {displayModels.map((model) => (
-                            <div key={model.key || model.id} className="group relative rounded-3xl bg-white/[0.02] border border-white/5 px-6 py-8 hover:bg-white/[0.04] hover:border-white/20 transition-all duration-300 backdrop-blur-sm">
-                                <div className="flex items-center justify-between mb-4">
-                                    <span className="text-[10px] font-black uppercase tracking-widest text-white/30 truncate max-w-[150px]">
+                            <div key={model.key || model.id} className="group relative rounded-2xl bg-white/[0.02] border border-white/5 px-4 py-6 hover:bg-white/[0.04] hover:border-white/20 transition-all duration-300 backdrop-blur-sm">
+                                <div className="flex items-center justify-between mb-3">
+                                    <span className="text-[9px] font-black uppercase tracking-widest text-white/30 truncate max-w-[120px]">
                                         {model.provider || 'Puter'}
                                     </span>
                                     <div className="w-1.5 h-1.5 rounded-full bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.5)]" />
                                 </div>
-                                <h3 className="text-xl font-bold mb-2 group-hover:text-purple-400 transition-colors truncate">
+                                <h3 className="text-sm font-bold mb-2 group-hover:text-purple-400 transition-colors truncate">
                                     {model.name || model.key || model.id}
                                 </h3>
-                                <div className="flex items-center gap-2 py-2 px-3 rounded-xl bg-black/50 border border-white/5 text-[11px] font-mono text-white/40 group-hover:text-white/70 transition-colors">
-                                    <code className="truncate flex-1">{model.key || model.id}</code>
+                                <div className="flex items-center gap-2 py-1 px-2 rounded-lg bg-black/50 border border-white/5 text-[9px] font-mono text-white/40 group-hover:text-white/70 transition-colors">
+                                    <code className="truncate flex-1">{model.id}</code>
                                 </div>
                             </div>
                         ))}
                     </div>
                     
-                    {models.length > 100 && (
+                    {models.length > 200 && (
                         <p className="text-center text-white/20 mt-12 text-sm italic">
-                            Showing first 100 models. All {models.length} models are available via the API.
+                            Showing first 200 models. All {models.length} models are available via the API.
                         </p>
                     )}
                 </section>
