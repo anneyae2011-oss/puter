@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
         console.log(`Calling Puter AI: model=${model}, stream=${!!stream}`);
         
         try {
-            const result = await puterFetch({
+            const response = await puterFetch({
                 interface: 'puter-chat-completion',
                 driver: 'ai-chat',
                 method: 'complete',
@@ -33,22 +33,47 @@ export async function POST(req: NextRequest) {
                 },
             });
 
-            // Map back to OpenAI format
-            // puterFetch result is the "result" field from the SDK internal call
+            // Read the entire response as text
+            // Note: Puter's direct drivers/call returns NDJSON (one JSON object per line)
+            // when streaming is enabled OR for some success/result envelopes.
+            const rawText = await response.text();
+            
+            // Split by lines and parse each valid JSON block
+            const lines = rawText.split('\n').filter(l => l.trim() !== '');
             let content = '';
-            if (result && result.message) {
-                const msgContent = result.message.content;
-                if (Array.isArray(msgContent)) {
-                    content = msgContent.map((part: any) => typeof part === 'string' ? part : (part.text || JSON.stringify(part))).join('');
-                } else {
-                    content = msgContent || '';
+            let usage = { prompt_tokens: -1, completion_tokens: -1, total_tokens: -1 };
+
+            for (const line of lines) {
+                try {
+                    const chunk = JSON.parse(line);
+                    
+                    // Case 1: Standard drivers/call result envelope (non-streaming)
+                    if (chunk.success && chunk.result) {
+                        const result = chunk.result;
+                        if (result.message && result.message.content) {
+                            content = result.message.content;
+                        }
+                        if (result.usage) usage = result.usage;
+                    } 
+                    // Case 2: Streaming chunk {"type":"text","text":"..."}
+                    else if (chunk.type === 'text') {
+                        content += chunk.text || '';
+                    }
+                    // Case 3: Streaming usage chunk {"type":"usage","usage":{...}}
+                    else if (chunk.type === 'usage' && chunk.usage) {
+                        usage = chunk.usage;
+                    }
+                    // Case 4: Raw result object (unpacked by puterFetch previously, but now we get raw response)
+                    else if (chunk.message && chunk.message.content) {
+                        content = chunk.message.content;
+                        if (chunk.usage) usage = chunk.usage;
+                    }
+                } catch (e) {
+                    console.warn('Failed to parse NDJSON line:', line, e);
                 }
-            } else if (typeof result === 'string') {
-                content = result;
-            } else {
-                content = JSON.stringify(result);
             }
 
+            // Return as standard OpenAI JSON response
             return NextResponse.json({
                 id: `chatcmpl-${Math.random().toString(36).substring(7)}`,
                 object: 'chat.completion',
@@ -64,11 +89,7 @@ export async function POST(req: NextRequest) {
                         finish_reason: 'stop',
                     },
                 ],
-                usage: result.usage || {
-                    prompt_tokens: -1,
-                    completion_tokens: -1,
-                    total_tokens: -1,
-                },
+                usage: usage,
             });
         } catch (apiError: any) {
             console.error('Puter Upstream Error:', apiError);

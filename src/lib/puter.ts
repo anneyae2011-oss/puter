@@ -1,7 +1,6 @@
 /**
  * SDK-Free Puter API Utility
- * This utility uses direct fetch calls to Puter's internal drivers/call endpoint,
- * which is much more reliable in serverless environments than the official SDK.
+ * Support for both streaming and non-streaming responses.
  */
 
 export const PUTER_API_KEY = process.env.PUTER_API_KEY;
@@ -20,7 +19,6 @@ export async function puterFetch(options: {
         method: 'POST',
         headers: {
             'Content-Type': 'text/plain;actually=json',
-            // Puter's internal API often requires these to bypass "Forbidden" checks
             'Origin': 'https://puter.com',
             'Referer': 'https://puter.com/',
         },
@@ -38,11 +36,7 @@ export async function puterFetch(options: {
         throw new Error(`Puter API Error (${response.status}): ${text}`);
     }
 
-    const data = await response.json();
-    
-    if (data.success === false) {
-        throw new Error(data.error?.message || 'Puter API operation failed');
-    }
-
-    return data.result;
+    // We return the raw response so the route can decide how to parse it 
+    // (e.g., as streaming chunks or a single JSON block)
+    return response;
 }
