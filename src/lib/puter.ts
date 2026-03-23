@@ -1,62 +1,48 @@
-import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
-import { join } from 'node:path';
+/**
+ * SDK-Free Puter API Utility
+ * This utility uses direct fetch calls to Puter's internal drivers/call endpoint,
+ * which is much more reliable in serverless environments than the official SDK.
+ */
 
-let puterInstance: any = null;
+export const PUTER_API_KEY = process.env.PUTER_API_KEY;
 
-export default function getPuter() {
-    if (puterInstance) return puterInstance;
-
-    const token = process.env.PUTER_API_KEY;
-    if (!token) {
-        console.warn('PUTER_API_KEY is not set');
+export async function puterFetch(options: {
+    interface: string;
+    driver: string;
+    method: string;
+    args: any;
+}) {
+    if (!PUTER_API_KEY) {
+        throw new Error('PUTER_API_KEY is not set');
     }
 
-    try {
-        // Prepare the sandbox context
-        const g: any = globalThis;
-        const goodContext: any = {
-            PUTER_API_ORIGIN: g.PUTER_API_ORIGIN,
-            PUTER_ORIGIN: g.PUTER_ORIGIN,
-            process: process,
-            console: console,
-            setTimeout: setTimeout,
-            clearTimeout: clearTimeout,
-            setInterval: setInterval,
-            clearInterval: clearInterval,
-        };
+    const response = await fetch('https://api.puter.com/drivers/call', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'text/plain;actually=json',
+            // Puter's internal API often requires these to bypass "Forbidden" checks
+            'Origin': 'https://puter.com',
+            'Referer': 'https://puter.com/',
+        },
+        body: JSON.stringify({
+            interface: options.interface,
+            driver: options.driver,
+            method: options.method,
+            args: options.args,
+            auth_token: PUTER_API_KEY,
+        }),
+    });
 
-        // Copy global properties to the sandbox
-        Object.getOwnPropertyNames(g).forEach(name => {
-            try {
-                if (!(name in goodContext)) {
-                    goodContext[name] = g[name];
-                }
-            } catch {
-                // silent fail
-            }
-        });
-        
-        goodContext.globalThis = goodContext;
-
-        // Load the Puter SDK bundle from node_modules
-        // We use process.cwd() to be reliable on Vercel
-        const sdkPath = join(process.cwd(), 'node_modules', '@heyputer', 'puter.js', 'dist', 'puter.cjs');
-        const code = readFileSync(sdkPath, 'utf8');
-
-        // Execute in a new VM context
-        const context = vm.createContext(goodContext);
-        vm.runInNewContext(code, context);
-
-        if (token) {
-            goodContext.puter.setAuthToken(token);
-        }
-
-        puterInstance = goodContext.puter;
-        return puterInstance;
-    } catch (error) {
-        console.error('Failed to initialize Puter SDK:', error);
-        // Fallback or re-throw
-        throw error;
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Puter API Error (${response.status}): ${text}`);
     }
+
+    const data = await response.json();
+    
+    if (data.success === false) {
+        throw new Error(data.error?.message || 'Puter API operation failed');
+    }
+
+    return data.result;
 }

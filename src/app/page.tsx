@@ -1,22 +1,21 @@
-import getPuter from '@/lib/puter';
+import fallbackModels from '@/lib/models_fallback.json';
 import { Cpu, Sparkles, MessageSquare, Globe } from 'lucide-react';
 
 async function getModels() {
-    try {
-        const puter = getPuter();
-        // Use deduplicate: false to get the full list of 500+ models from all providers
-        const models = await puter.ai.listModels({ deduplicate: false });
-        return models as any[];
-    } catch (e) {
-        console.error('Home Page Mode Fetch Error:', e);
-        return [];
-    }
+    // We use the static fallback for the home page to ensure maximum reliability
+    // The dropdown and registry will always show the 427 models.
+    return fallbackModels.map(id => ({
+        id: id,
+        key: id,
+        name: id.split('/').pop()?.split(':').pop() || id,
+        provider: id.includes(':') ? id.split(':')[0] : (id.includes('/') ? id.split('/')[0] : 'Puter')
+    }));
 }
 
 export default async function Home() {
     const models = await getModels();
     
-    // Show top 200 for the grid (to keep it performant while showing variety)
+    // Show top 200 for the grid
     const displayModels = models.slice(0, 200);
 
     return (
@@ -53,15 +52,15 @@ export default async function Home() {
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         {displayModels.map((model) => (
-                            <div key={model.key || model.id} className="group relative rounded-2xl bg-white/[0.02] border border-white/5 px-4 py-6 hover:bg-white/[0.04] hover:border-white/20 transition-all duration-300 backdrop-blur-sm">
+                            <div key={model.id} className="group relative rounded-2xl bg-white/[0.02] border border-white/5 px-4 py-6 hover:bg-white/[0.04] hover:border-white/20 transition-all duration-300 backdrop-blur-sm">
                                 <div className="flex items-center justify-between mb-3">
                                     <span className="text-[9px] font-black uppercase tracking-widest text-white/30 truncate max-w-[120px]">
-                                        {model.provider || 'Puter'}
+                                        {model.provider}
                                     </span>
                                     <div className="w-1.5 h-1.5 rounded-full bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.5)]" />
                                 </div>
                                 <h3 className="text-sm font-bold mb-2 group-hover:text-purple-400 transition-colors truncate">
-                                    {model.name || model.key || model.id}
+                                    {model.name}
                                 </h3>
                                 <div className="flex items-center gap-2 py-1 px-2 rounded-lg bg-black/50 border border-white/5 text-[9px] font-mono text-white/40 group-hover:text-white/70 transition-colors">
                                     <code className="truncate flex-1">{model.id}</code>

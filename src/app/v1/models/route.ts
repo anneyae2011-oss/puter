@@ -1,18 +1,15 @@
 import { NextResponse } from 'next/server';
-import getPuter from '@/lib/puter';
+import fallbackModels from '@/lib/models_fallback.json';
 
 export async function GET() {
     try {
-        const puter = getPuter();
-        // Use deduplicate: false to get the full list of 500+ models from all providers
-        const models = await puter.ai.listModels({ deduplicate: false });
-        
-        // Transform Puter models to OpenAI format
-        const data = (models as any[]).map((m: any) => ({
-            id: m.key || m.id,
+        // We use the static fallback as the primary source for reliability on Vercel
+        // This ensures the dropdown always contains all 427 Puter models.
+        const data = fallbackModels.map((id: string) => ({
+            id: id,
             object: 'model',
             created: Math.floor(Date.now() / 1000),
-            owned_by: m.provider || 'puter',
+            owned_by: id.includes(':') ? id.split(':')[0] : 'puter',
         }));
 
         return NextResponse.json({
