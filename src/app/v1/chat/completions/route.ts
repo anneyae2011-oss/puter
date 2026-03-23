@@ -20,7 +20,6 @@ function getDriverForModel(model: string): string {
         return 'mistral';
     }
     
-    // Default to ai-chat or openai-completion
     return 'ai-chat';
 }
 
@@ -33,7 +32,6 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Model and messages are required' }, { status: 400 });
         }
 
-        // Authenticate the request using WandererTrade key
         const authHeader = req.headers.get('Authorization');
         const token = authHeader?.replace('Bearer ', '');
 
@@ -41,12 +39,11 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Unauthorized. Invalid WandererTrade API Key.' }, { status: 401 });
         }
 
-        // Determine the correct Puter driver for this model
         const driver = getDriverForModel(model);
         console.log(`Calling Puter AI: model=${model}, driver=${driver}, stream=${!!stream}`);
         
         try {
-            const response = await puterFetch({
+            const puterResponse = await puterFetch({
                 interface: 'puter-chat-completion',
                 driver: driver,
                 method: 'complete',
@@ -57,10 +54,86 @@ export async function POST(req: NextRequest) {
                 },
             });
 
-            // Read the entire response as text
-            const rawText = await response.text();
-            
-            // Split by lines and parse each valid JSON block (NDJSON)
+            const chatId = `chatcmpl-${Math.random().toString(36).substring(7)}`;
+            const created = Math.floor(Date.now() / 1000);
+
+            // REAL-TIME STREAMING (SSE)
+            if (stream === true) {
+                const encoder = new TextEncoder();
+                const decoder = new TextDecoder();
+                const reader = puterResponse.body?.getReader();
+
+                const streamResponse = new ReadableStream({
+                    async start(controller) {
+                        if (!reader) {
+                            controller.close();
+                            return;
+                        }
+
+                        let buffer = '';
+                        try {
+                            while (true) {
+                                const { done, value } = await reader.read();
+                                if (done) break;
+
+                                buffer += decoder.decode(value, { stream: true });
+                                const lines = buffer.split('\n');
+                                buffer = lines.pop() || '';
+
+                                for (const line of lines) {
+                                    if (!line.trim()) continue;
+                                    try {
+                                        const chunk = JSON.parse(line);
+                                        let deltaContent = '';
+                                        let finishReason: string | null = null;
+
+                                        if (chunk.type === 'text') {
+                                            deltaContent = chunk.text || '';
+                                        } else if (chunk.type === 'usage' || (chunk.finish_reason && chunk.finish_reason !== null)) {
+                                            finishReason = chunk.finish_reason || 'stop';
+                                        }
+
+                                        if (deltaContent || finishReason) {
+                                            const openAIChunk = {
+                                                id: chatId,
+                                                object: 'chat.completion.chunk',
+                                                created: created,
+                                                model: model,
+                                                choices: [
+                                                    {
+                                                        index: 0,
+                                                        delta: deltaContent ? { content: deltaContent } : {},
+                                                        finish_reason: finishReason,
+                                                    },
+                                                ],
+                                            };
+                                            controller.enqueue(encoder.encode(`data: ${JSON.stringify(openAIChunk)}\n\n`));
+                                        }
+                                    } catch (e) {
+                                        // Ignore malformed chunks
+                                    }
+                                }
+                            }
+                            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+                        } catch (err) {
+                            console.error('Streaming error:', err);
+                        } finally {
+                            controller.close();
+                        }
+                    },
+                });
+
+                return new Response(streamResponse, {
+                    headers: {
+                        'Content-Type': 'text/event-stream',
+                        'Cache-Control': 'no-cache',
+                        'Connection': 'keep-alive',
+                    },
+                });
+            }
+
+            // NON-STREAMING (Standard JSON)
+            const rawText = await puterResponse.text();
             const lines = rawText.split('\n').filter(l => l.trim() !== '');
             let content = '';
             let usage = { prompt_tokens: -1, completion_tokens: -1, total_tokens: -1 };
@@ -68,8 +141,6 @@ export async function POST(req: NextRequest) {
             for (const line of lines) {
                 try {
                     const chunk = JSON.parse(line);
-                    
-                    // Case 1: Standard drivers/call result envelope (non-streaming)
                     if (chunk.success === true && chunk.result) {
                         const resultData = chunk.result;
                         const msgObj = resultData.message;
@@ -80,17 +151,11 @@ export async function POST(req: NextRequest) {
                                 : (typeof c === 'string' ? c : JSON.stringify(c));
                         }
                         if (resultData.usage) usage = resultData.usage;
-                    } 
-                    // Case 2: Streaming chunk {"type":"text","text":"..."}
-                    else if (chunk.type === 'text') {
+                    } else if (chunk.type === 'text') {
                         content += chunk.text || '';
-                    }
-                    // Case 3: Streaming usage chunk {"type":"usage","usage":{...}}
-                    else if (chunk.type === 'usage' && chunk.usage) {
+                    } else if (chunk.type === 'usage' && chunk.usage) {
                         usage = chunk.usage;
-                    }
-                    // Case 4: Raw result object
-                    else if (chunk.message && chunk.message.content) {
+                    } else if (chunk.message && chunk.message.content) {
                         const c = chunk.message.content;
                         if (content === '') {
                             content = Array.isArray(c) 
@@ -99,16 +164,13 @@ export async function POST(req: NextRequest) {
                         }
                         if (chunk.usage) usage = chunk.usage;
                     }
-                } catch (e) {
-                    // Ignore empty or malformed lines
-                }
+                } catch (e) {}
             }
 
-            // Return as standard OpenAI JSON response
             return NextResponse.json({
-                id: `chatcmpl-${Math.random().toString(36).substring(7)}`,
+                id: chatId,
                 object: 'chat.completion',
-                created: Math.floor(Date.now() / 1000),
+                created: created,
                 model: model,
                 choices: [
                     {
