@@ -21,11 +21,15 @@ export async function POST(req: NextRequest) {
         }
 
         // Puter AI Chat Call
-        // Note: puter.ai.chat expects the model name and the messages array
-        // It returns a promise that resolves to the completion
-        const response = await puter.ai.chat(model, messages);
+        // Correct signature: puter.ai.chat(messages, options)
+        const response = await puter.ai.chat(messages, { model });
 
         // Map back to OpenAI format
+        // response is a ChatResponse object which has { message: { role, content } }
+        const content = typeof response === 'string' 
+            ? response 
+            : (response as any).message?.content || (response as any).content || JSON.stringify(response);
+
         return NextResponse.json({
             id: `chatcmpl-${Math.random().toString(36).substring(7)}`,
             object: 'chat.completion',
@@ -36,13 +40,13 @@ export async function POST(req: NextRequest) {
                     index: 0,
                     message: {
                         role: 'assistant',
-                        content: typeof response === 'string' ? response : (response as any).content || JSON.stringify(response),
+                        content: content,
                     },
                     finish_reason: 'stop',
                 },
             ],
             usage: {
-                prompt_tokens: -1, // Puter doesn't disclose tokens easily here
+                prompt_tokens: -1,
                 completion_tokens: -1,
                 total_tokens: -1,
             },
