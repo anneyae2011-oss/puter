@@ -21,14 +21,30 @@ export async function POST(req: NextRequest) {
         }
 
         // Puter AI Chat Call
-        // Correct signature: puter.ai.chat(messages, options)
         const response = await puter.ai.chat(messages, { model });
 
+        console.log('Puter Response:', JSON.stringify(response, null, 2));
+
         // Map back to OpenAI format
-        // response is a ChatResponse object which has { message: { role, content } }
-        const content = typeof response === 'string' 
-            ? response 
-            : (response as any).message?.content || (response as any).content || JSON.stringify(response);
+        let content = '';
+        if (typeof response === 'string') {
+            content = response;
+        } else if (response && (response as any).message) {
+            const msgContent = (response as any).message.content;
+            if (Array.isArray(msgContent)) {
+                content = msgContent.map(part => typeof part === 'string' ? part : JSON.stringify(part)).join('');
+            } else if (typeof msgContent === 'string') {
+                content = msgContent;
+            } else {
+                content = JSON.stringify(msgContent);
+            }
+        } else if (response && (response as any).content) {
+            content = typeof (response as any).content === 'string' 
+                ? (response as any).content 
+                : JSON.stringify((response as any).content);
+        } else {
+            content = JSON.stringify(response);
+        }
 
         return NextResponse.json({
             id: `chatcmpl-${Math.random().toString(36).substring(7)}`,
@@ -40,7 +56,7 @@ export async function POST(req: NextRequest) {
                     index: 0,
                     message: {
                         role: 'assistant',
-                        content: content,
+                        content: content || '',
                     },
                     finish_reason: 'stop',
                 },
